@@ -451,16 +451,19 @@ pub struct DecodeDataError<T>(pub T);
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum CommandError {
-    #[error("connection error")]
+    #[error("connection error: {0}")]
     ConnectionError(QuinnError),
-    #[error("data error")]
+    #[error("data error: {0}")]
     DataError(DecodeCommandError),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum QuinnError {
+    #[error("{0}")]
     Connection(quinn::ConnectionError),
+    #[error("{0}")]
     Write(quinn::WriteError),
+    #[error("{0}")]
     ReadExact(quinn::ReadExactError),
 }
 
