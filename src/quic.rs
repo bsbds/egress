@@ -300,17 +300,9 @@ where
                     Ok(data) = receiver.recv_async() => {
                         if let Err(e) = connection.send_datagram(data.to_be_bytes()) {
                             info!("send datagram error: {}, conn id: {}", e, conn_id);
-                            break;
                         }
                     }
-                    recv = connection.read_datagram() => {
-                        let bytes = match recv {
-                            Err(e) => {
-                                info!("read datagram error: {} ", e);
-                                break;
-                            },
-                            Ok(bytes) => bytes,
-                        };
+                    Ok(bytes) = connection.read_datagram() => {
                         match StreamData::try_from(bytes) {
                             Err(e) => info!("bytes decode failed: {}", e),
                             Ok(data) => {
@@ -329,10 +321,7 @@ where
                     }
                     res = read_command(recv_stream) => {
                         match res {
-                            Err(e) => {
-                                info!("accept uni stream failed: {}", e);
-                                break;
-                            }
+                            Err(e) => info!("accept uni stream failed: {}", e),
                             Ok(command) => {
                                 <C as HandleCommand<C>>::handle_command(
                                     command,
@@ -341,6 +330,10 @@ where
                                 );
                             }
                         };
+                    }
+                    err = connection.closed() => {
+                        info!("connection closed: {}", err);
+                        break;
                     }
                 }
             }
