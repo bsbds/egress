@@ -34,23 +34,17 @@ Before you begin, ensure you have the following software installed on your syste
 
 Clone the Egress repository:
 
-bash
-
 ```bash
 git clone https://github.com/bsbds/egress.git
 ```
 
 Navigate to the project directory:
 
-bash
-
 ```bash
 cd egress
 ```
 
 Build the project:
-
-bash
 
 ```bash
 cargo build --release
@@ -99,8 +93,6 @@ network = "udp" # network mode, or "tcp"
 ### Example
 
 To run Egress:
-
-bash
 
 ```bash
 ./egress --config config.toml
