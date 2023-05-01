@@ -277,68 +277,69 @@ where
     C: ConnectedState + HandleCommand<C> + Clone + Send + Sync + 'static,
 {
     fn start_transport(&self) {
-        let conn_id = self.connection.stable_id();
-
         let this = self.clone();
+
         tokio::spawn(async move {
             let QuicConnectionInner {
-                connection,
-                command_recv_stream,
-                chan_mpsc: (_, receiver),
-                sender_map,
-                closed,
-                ..
+                connection, closed, ..
             } = this.as_ref();
+            let conn_id = this.connection.stable_id();
 
-            let mut guard = command_recv_stream.lock().await;
-            let recv_stream = guard.as_mut().unwrap();
+            if let Err(e) = this.transport_inner().await {
+                info!("connection error: {}, id: {}", e, conn_id);
+            }
+            if connection.close_reason().is_none() {
+                connection.close(0u32.into(), &[]);
+            }
+            closed.notify_waiters();
+        });
+    }
 
-            let mut pending_queue = HashMap::new();
+    async fn transport_inner(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let QuicConnectionInner {
+            connection,
+            command_recv_stream,
+            chan_mpsc: (_, receiver),
+            sender_map,
+            ..
+        } = self.as_ref();
 
-            loop {
-                tokio::select! {
-                    Ok(data) = receiver.recv_async() => {
-                        if let Err(e) = connection.send_datagram(data.to_be_bytes()) {
-                            info!("send datagram error: {}, conn id: {}", e, conn_id);
-                        }
-                    }
-                    Ok(bytes) = connection.read_datagram() => {
-                        match StreamData::try_from(bytes) {
-                            Err(e) => info!("bytes decode failed: {}", e),
-                            Ok(data) => {
-                                let id = data.stream_id;
-                                match sender_map.get(&id) {
-                                    None => {
-                                        let vec = pending_queue.entry(id).or_insert(vec![]);
-                                        vec.push(data.bytes);
-                                    }
-                                    Some(sender) => {
-                                        let _ = sender.send(data.bytes);
-                                    }
+        let mut guard = command_recv_stream.lock().await;
+        let recv_stream = guard.as_mut().unwrap();
+
+        let mut pending_queue = HashMap::new();
+
+        loop {
+            tokio::select! {
+                data = receiver.recv_async() => {
+                    connection.send_datagram(data?.to_be_bytes())?;
+                }
+                bytes = connection.read_datagram() => {
+                    match StreamData::try_from(bytes?) {
+                        Err(e) => info!("bytes decode failed: {}", e),
+                        Ok(data) => {
+                            let id = data.stream_id;
+                            match sender_map.get(&id) {
+                                None => {
+                                    let vec = pending_queue.entry(id).or_insert(vec![]);
+                                    vec.push(data.bytes);
+                                }
+                                Some(sender) => {
+                                    let _ = sender.send(data.bytes);
                                 }
                             }
                         }
                     }
-                    res = read_command(recv_stream) => {
-                        match res {
-                            Err(e) => info!("accept uni stream failed: {}", e),
-                            Ok(command) => {
-                                <C as HandleCommand<C>>::handle_command(
-                                    command,
-                                    &this,
-                                    &mut pending_queue,
-                                );
-                            }
-                        };
-                    }
-                    err = connection.closed() => {
-                        info!("connection closed: {}", err);
-                        break;
-                    }
+                }
+                command = read_command(recv_stream) => {
+                    <C as HandleCommand<C>>::handle_command(
+                        command?,
+                        self,
+                        &mut pending_queue,
+                    );
                 }
             }
-            closed.notify_waiters();
-        });
+        }
     }
 
     fn build_stream(
