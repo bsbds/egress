@@ -2,7 +2,9 @@ mod command;
 mod datagram_stream;
 
 use crate::{
-    common::constant::{FLUME_CHANNEL_SIZE, STREAM_QUEUE_SIZE},
+    common::constant::{
+        FLUME_CHANNEL_SIZE, MAX_PENDING_DATA_SIZE, MAX_PENDING_STREAM, STREAM_QUEUE_SIZE,
+    },
     config::NetworkType,
 };
 use bytes::{Bytes, BytesMut};
@@ -13,7 +15,7 @@ use flume::{Receiver, Sender};
 use log::{error, info};
 use quinn::{Connection, RecvStream, SendStream};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt::Display,
     net::SocketAddr,
     sync::{
@@ -264,10 +266,11 @@ impl HandleCommand<ServerState> for ServerState {
 
                 // resend pending datagrams
                 if let Some(pending) = pending_queue.remove(&id) {
-                    if let Some(sender) = connection.sender_map.get(&id) {
-                        for bytes in pending {
-                            let _ = sender.send(bytes);
-                        }
+                    let sender = connection.sender_map.get(&id).unwrap_or_else(|| {
+                        unreachable!("`build_stream` should have registered the sender")
+                    });
+                    for bytes in pending {
+                        let _ = sender.send(bytes);
                     }
                 }
 
@@ -315,6 +318,7 @@ where
         let recv_stream = guard.as_mut().unwrap();
 
         let mut pending_queue = HashMap::new();
+        let mut pending_ids = VecDeque::new();
 
         loop {
             tokio::select! {
@@ -328,8 +332,12 @@ where
                             let id = data.stream_id;
                             match sender_map.get(&id) {
                                 None => {
-                                    let vec = pending_queue.entry(id).or_insert(vec![]);
-                                    vec.push(data.bytes);
+                                    Self::handle_pending(
+                                        &mut pending_queue,
+                                        &mut pending_ids,
+                                        id,
+                                        data.bytes
+                                    );
                                 }
                                 Some(sender) => {
                                     let _ = sender.send(data.bytes);
@@ -346,6 +354,38 @@ where
                     );
                 }
             }
+        }
+    }
+
+    /// Handle pending data
+    ///
+    /// This exist because the client may open a stream using QUIC realiable
+    /// transmission, and we need to asynchronously receive unreliable datagrams.
+    /// Therefore, we must buffer the datagrams until the command procedure is complete.
+    ///
+    /// TODO: add periodic cleanup
+    fn handle_pending(
+        pending_queue: &mut HashMap<StreamId, Vec<Bytes>>,
+        pending_ids: &mut VecDeque<StreamId>,
+        id: StreamId,
+        data: Bytes,
+    ) {
+        if !pending_queue.contains_key(&id) {
+            if pending_ids.len() == MAX_PENDING_STREAM {
+                let expired_id = pending_ids
+                    .pop_front()
+                    .unwrap_or_else(|| unreachable!("pending_ids should always have an element"));
+                let _ignore = pending_queue.remove(&expired_id);
+                info!("removed pending id: {expired_id}");
+                return;
+            }
+            pending_ids.push_back(id);
+        }
+        let vec = pending_queue.entry(id).or_insert(vec![]);
+        if vec.len() + data.len() <= MAX_PENDING_DATA_SIZE {
+            vec.push(data);
+        } else {
+            info!("dropping pending data, len: {}", data.len());
         }
     }
 
