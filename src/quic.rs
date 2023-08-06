@@ -1,9 +1,12 @@
 mod command;
 mod datagram_stream;
 
-use crate::{common::constant::FLUME_CHANNEL_SIZE, config::NetworkType};
+use crate::{
+    common::constant::{FLUME_CHANNEL_SIZE, STREAM_QUEUE_SIZE},
+    config::NetworkType,
+};
 use bytes::{Bytes, BytesMut};
-use crossbeam_queue::SegQueue;
+use crossbeam_queue::ArrayQueue;
 use dashmap::DashMap;
 pub use datagram_stream::DatagramStream;
 use flume::{Receiver, Sender};
@@ -31,7 +34,7 @@ pub struct ClientState {
 
 #[derive(Clone)]
 pub struct ServerState {
-    stream_queue: Arc<SegQueue<DatagramStream<ServerState>>>,
+    stream_queue: Arc<ArrayQueue<DatagramStream<ServerState>>>,
     new_stream: Arc<Notify>,
 }
 
@@ -136,7 +139,7 @@ impl QuicConnection<()> {
         let connection = QuicConnection {
             inner: self.inner.clone(),
             state: ServerState {
-                stream_queue: Arc::new(SegQueue::new()),
+                stream_queue: Arc::new(ArrayQueue::new(STREAM_QUEUE_SIZE)),
                 new_stream: Arc::new(Notify::new()),
             },
         };
@@ -246,6 +249,9 @@ impl HandleCommand<ServerState> for ServerState {
                 }
             }
             _ => {
+                if connection.state.stream_queue.is_full() {
+                    return;
+                }
                 let (id, stream) = match command {
                     ConnectionCommand::OpenUdp { id, peer_addr } => {
                         (id, connection.build_stream(NetworkType::Udp, id, peer_addr))
@@ -265,7 +271,8 @@ impl HandleCommand<ServerState> for ServerState {
                     }
                 }
 
-                connection.state.stream_queue.push(stream);
+                // `stream_queue` should not be full
+                let _ignore = connection.state.stream_queue.force_push(stream);
                 connection.state.new_stream.notify_waiters();
             }
         }
