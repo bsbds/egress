@@ -3,6 +3,12 @@ name = "egress"
 version = "0.1.0"
 edition = "2021"
 
+
+[features]
+default = ["quinn"]
+s2n-quic = []
+quinn = []
+
 [dependencies]
 quinn = "0.10"
 tokio = { version = "1", features = ["full"] }
@@ -24,6 +30,12 @@ clap = { version = "4.1", features = ["derive"] }
 thiserror = "1"
 dashmap = "5.4"
 crossbeam-queue = "0.3"
+s2n-quic = { version = "1", default-features = false, features = [
+  "provider-address-token-default",
+  "provider-tls-rustls",
+  "unstable-provider-datagram",
+] }
+async-trait = "0.1"
 
 [profile.release]
 lto = true

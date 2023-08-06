@@ -1,5 +1,7 @@
 mod command;
+mod connection;
 mod datagram_stream;
+mod endpoint;
 
 use crate::{
     common::constant::{
