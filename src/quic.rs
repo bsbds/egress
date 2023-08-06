@@ -74,7 +74,7 @@ impl<S> QuicConnection<S>
 where
     S: Clone,
 {
-    pub fn connetion_closed(&self) -> bool {
+    pub fn connection_closed(&self) -> bool {
         self.connection.close_reason().is_some()
     }
 }
@@ -197,7 +197,7 @@ impl QuicConnection<ClientState> {
 }
 
 impl QuicConnection<ServerState> {
-    pub async fn accecpt_stream(&self) -> DatagramStream<ServerState> {
+    pub async fn accept_stream(&self) -> DatagramStream<ServerState> {
         loop {
             if let Some(stream) = self.state.stream_queue.pop() {
                 return stream;

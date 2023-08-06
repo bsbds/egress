@@ -113,7 +113,7 @@ pub async fn server(config: config::Config) {
                 .await
             {
                 loop {
-                    let stream = handle.accecpt_stream().await;
+                    let stream = handle.accept_stream().await;
                     tokio::spawn(async move {
                         info!("new stream, id: {}", stream.id());
 

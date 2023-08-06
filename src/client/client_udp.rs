@@ -1,4 +1,4 @@
-use super::QuicConnMananger;
+use super::QuicConnManager;
 use crate::{
     common::constant::{FLUME_CHANNEL_SIZE, UDP_RECV_BUF_SIZE},
     config::NetworkType,
@@ -143,7 +143,7 @@ pub enum UdpPeerError {
     FlumeRecvError(flume::RecvError),
 }
 
-async fn accpet_connections(listener: UdpState, peer_addr: SocketAddr, conn_man: QuicConnMananger) {
+async fn accept_connections(listener: UdpState, peer_addr: SocketAddr, conn_man: QuicConnManager) {
     loop {
         let udp_peer = listener.accept().await;
         let handle = conn_man.handle().await;
@@ -191,12 +191,12 @@ async fn accpet_connections(listener: UdpState, peer_addr: SocketAddr, conn_man:
 pub async fn spawn_udp_sockets(
     udp_listen: SocketAddr,
     peer_addr: SocketAddr,
-    conn_man: QuicConnMananger,
+    conn_man: QuicConnManager,
 ) {
     let socket = UdpSocket::bind(udp_listen)
         .await
         .expect("create socket failed");
     let state = UdpState::new(socket);
     state.clone().listen();
-    accpet_connections(state, peer_addr, conn_man).await;
+    accept_connections(state, peer_addr, conn_man).await;
 }

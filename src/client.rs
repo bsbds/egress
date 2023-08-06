@@ -15,7 +15,7 @@ use tokio::{
 };
 use {client_tcp::*, client_udp::*};
 
-pub struct QuicConnMananger {
+pub struct QuicConnManager {
     conn_handle: Mutex<Option<QuicConnection<ClientState>>>,
     endpoint: Endpoint,
     server_addr: SocketAddr,
@@ -25,7 +25,7 @@ pub struct QuicConnMananger {
     stream_idle_timeout: u64,
 }
 
-impl QuicConnMananger {
+impl QuicConnManager {
     fn new(
         endpoint: Endpoint,
         server_addr: SocketAddr,
@@ -48,7 +48,7 @@ impl QuicConnMananger {
     pub(super) async fn handle(&self) -> QuicConnection<ClientState> {
         let mut guard = self.conn_handle.lock().await;
         if let Some(handle) = guard.as_ref() {
-            if !handle.connetion_closed() {
+            if !handle.connection_closed() {
                 return handle.clone();
             }
         }
@@ -139,16 +139,16 @@ fn build_endpoint(
     congestion: Congestion,
     max_udp_payload: u16,
     server_addr: SocketAddr,
-    conn_idle_timout: u64,
+    conn_idle_timeout: u64,
 ) -> Result<Endpoint, Box<dyn std::error::Error>> {
     let mut client_config = if cert_ver {
         quinn::ClientConfig::with_native_roots()
     } else {
-        warn!("skipping certificate varification");
+        warn!("skipping certificate verification");
         configure_client()
     };
 
-    let transport = util::new_transport(max_udp_payload, congestion, conn_idle_timout);
+    let transport = util::new_transport(max_udp_payload, congestion, conn_idle_timeout);
     client_config.transport_config(Arc::new(transport));
 
     let addr: SocketAddr = match server_addr {
@@ -185,7 +185,7 @@ pub async fn client(config: config::Config) {
 
     info!("client listening on: {}", client_conf.listen);
 
-    let conn_man = QuicConnMananger::new(
+    let conn_man = QuicConnManager::new(
         endpoint,
         server_addr,
         client_conf.server_name,

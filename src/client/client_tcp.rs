@@ -1,4 +1,4 @@
-use super::QuicConnMananger;
+use super::QuicConnManager;
 use crate::{common::tcp_util::tcp_transport, config::NetworkType};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 pub async fn spawn_tcp_sockets(
     listen_addr: SocketAddr,
     peer_addr: SocketAddr,
-    conn_man: QuicConnMananger,
+    conn_man: QuicConnManager,
 ) {
     let listener = TcpListener::bind(listen_addr)
         .await
