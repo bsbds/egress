@@ -69,7 +69,7 @@ psk = "PSK" # preshared key you generated in base64 encoding
 congestion = "bbr" # congestion of quic connection, "cubic", "new_reno" or "bbr"
 initial_mtu = 1452 # 1500 bytes ethernet frame - 40 bytes ipv6 header - 8 bytes UDP header, modify this for your usecase
 enable_0rtt = false # whether to enable 0rtt handshake
-loglevel = "warning" # rust's log level
+loglevel = "warn" # rust's log level
 stream_idle_timeout = 30 # timeout for multiplexed stream
 connection_idle_timeout = 60 # timeout for one quic connection
 
