@@ -14,7 +14,7 @@ pub fn decode_psk(psk_encoded: &str) -> Result<Vec<u8>, Box<dyn std::error::Erro
 }
 
 pub fn new_transport(
-    max_udp_payload: u16,
+    initial_mtu: u16,
     congestion: Congestion,
     idle_timeout: u64,
 ) -> TransportConfig {
@@ -22,7 +22,7 @@ pub fn new_transport(
     transport.max_idle_timeout(Some(
         quinn::IdleTimeout::try_from(Duration::from_secs(idle_timeout)).expect("invalid timeout"),
     ));
-    transport.initial_max_udp_payload_size(max_udp_payload);
+    transport.initial_mtu(initial_mtu);
     match congestion {
         Congestion::Cubic => {
             info!("using congestion: cubic");

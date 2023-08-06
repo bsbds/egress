@@ -65,6 +65,7 @@ impl QuicConnManager {
 
     async fn endpoint_connect(&self) -> Connection {
         let conn = loop {
+            info!("connecting to {}", self.server_addr);
             let connecting = self
                 .endpoint
                 .connect(self.server_addr, &self.server_name)
@@ -137,7 +138,7 @@ fn configure_client() -> quinn::ClientConfig {
 fn build_endpoint(
     cert_ver: bool,
     congestion: Congestion,
-    max_udp_payload: u16,
+    initial_mtu: u16,
     server_addr: SocketAddr,
     conn_idle_timeout: u64,
 ) -> Result<Endpoint, Box<dyn std::error::Error>> {
@@ -148,7 +149,7 @@ fn build_endpoint(
         configure_client()
     };
 
-    let transport = util::new_transport(max_udp_payload, congestion, conn_idle_timeout);
+    let transport = util::new_transport(initial_mtu, congestion, conn_idle_timeout);
     client_config.transport_config(Arc::new(transport));
 
     let addr: SocketAddr = match server_addr {
@@ -177,7 +178,7 @@ pub async fn client(config: config::Config) {
     let endpoint = build_endpoint(
         client_conf.cert_ver,
         config.congestion,
-        config.max_udp_payload,
+        config.initial_mtu,
         server_addr,
         config.connection_idle_timeout,
     )

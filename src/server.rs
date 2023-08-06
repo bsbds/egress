@@ -41,7 +41,7 @@ fn build_endpoint(
     certificate: Option<String>,
     private_key: Option<String>,
     congestion: Congestion,
-    max_udp_payload: u16,
+    initial_mtu: u16,
     self_sign: bool,
     conn_idle_timeout: u64,
 ) -> Result<Endpoint, Box<dyn Error>> {
@@ -56,7 +56,7 @@ fn build_endpoint(
         )?
     };
 
-    let transport = util::new_transport(max_udp_payload, congestion, conn_idle_timeout);
+    let transport = util::new_transport(initial_mtu, congestion, conn_idle_timeout);
     let mut server_config = quinn::ServerConfig::with_single_cert(cert_chain, key)?;
     server_config.transport_config(Arc::new(transport));
 
@@ -73,7 +73,7 @@ pub async fn server(config: config::Config) {
         server_config.certificate,
         server_config.private_key,
         config.congestion,
-        config.max_udp_payload,
+        config.initial_mtu,
         server_config.self_sign,
         config.connection_idle_timeout,
     )

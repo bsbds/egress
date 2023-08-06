@@ -18,8 +18,8 @@ pub struct Config {
     pub server: Option<ServerConfig>,
     #[serde(default = "default_congestion")]
     pub congestion: Congestion,
-    #[serde(default = "default_max_udp_payload")]
-    pub max_udp_payload: u16,
+    #[serde(default = "default_initial_mtu")]
+    pub initial_mtu: u16,
     #[serde(default = "default_conn_idle_timeout")]
     pub connection_idle_timeout: u64,
     #[serde(default = "default_stream_idle_timeout")]
@@ -44,8 +44,8 @@ fn default_enable_0rtt() -> bool {
 fn default_loglevel() -> String {
     "warn".to_string()
 }
-fn default_max_udp_payload() -> u16 {
-    1452
+fn default_initial_mtu() -> u16 {
+    1200
 }
 
 /// Client specific configuration
