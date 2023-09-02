@@ -1,10 +1,14 @@
-use super::{CommandError, StreamId};
-use quinn::{RecvStream, SendStream};
+use super::{
+    connection::{RecvStream, SendStream},
+    CommandError, StreamId,
+};
+use bytes::BytesMut;
 use std::{
     net::{IpAddr, SocketAddr},
     sync::Arc,
 };
 use thiserror::Error;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Clone)]
 pub enum ConnectionCommand {
@@ -130,16 +134,18 @@ impl ConnectionCommand {
         }
     }
 
-    pub async fn write_to_stream(&self, stream: &mut SendStream) -> Result<(), CommandError> {
+    pub async fn write_to_stream(&self, stream: &mut dyn SendStream) -> Result<(), CommandError> {
+        let mut bytes = BytesMut::new();
         let encoded = self.to_be_bytes();
         let length = encoded.len() as u8;
-        stream.write_all(&length.to_be_bytes()).await?;
-        stream.write_all(&encoded).await?;
+        bytes.extend_from_slice(&length.to_be_bytes());
+        bytes.extend_from_slice(&encoded);
+        stream.write_all(&bytes.freeze()).await?;
         Ok(())
     }
 }
 
-pub async fn read_command(stream: &mut RecvStream) -> Result<ConnectionCommand, CommandError> {
+pub async fn read_command(stream: &mut dyn RecvStream) -> Result<ConnectionCommand, CommandError> {
     let mut length_buf = [0; 1];
     stream.read_exact(&mut length_buf).await?;
     let length = u8::from_be_bytes(length_buf) as usize;

@@ -3,21 +3,23 @@ name = "egress"
 version = "0.1.0"
 edition = "2021"
 
-
 [features]
-default = ["quinn"]
-s2n-quic = []
-quinn = []
+default = []
+s2n-quic = ["dep:s2n-quic"]
+quinn = ["dep:quinn", "dep:rustls", "dep:rustls-pemfile", "dep:rcgen"]
 
 [dependencies]
-quinn = "0.10"
+quinn = { version = "0.10", optional = true }
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 futures-util = "0.3"
 futures = "0.3"
-rustls = { version = "0.21.0", features = ["dangerous_configuration", "quic"] }
-rustls-pemfile = "1.0.2"
-rcgen = "0.10"
+rustls = { version = "0.21.0", features = [
+  "dangerous_configuration",
+  "quic",
+], optional = true }
+rustls-pemfile = { version = "1.0.2", optional = true }
+rcgen = { version = "0.10", optional = true }
 bytes = "1.2"
 log = "0.4"
 env_logger = "0.9"
@@ -30,11 +32,9 @@ clap = { version = "4.1", features = ["derive"] }
 thiserror = "1"
 dashmap = "5.4"
 crossbeam-queue = "0.3"
-s2n-quic = { version = "1", default-features = false, features = [
-  "provider-address-token-default",
-  "provider-tls-rustls",
+s2n-quic = { version = "1", features = [
   "unstable-provider-datagram",
-] }
+], optional = true }
 async-trait = "0.1"
 
 [profile.release]

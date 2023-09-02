@@ -6,41 +6,19 @@ use std::{
 use async_trait::async_trait;
 use log::{info, warn};
 use quinn::{Connecting, Connection as QuinnConnection, Endpoint as QuinnEndpoint};
-use s2n_quic::{
-    client::Connect as ConnectConfig, Client as S2nClient, Connection as S2nConnection,
-    Server as S2nServer,
-};
-use thiserror::Error;
 
-use super::connection::Connection;
+use crate::quic::connection::Connection;
 
-#[derive(Debug, Error)]
-#[error("connect error: {0}")]
-pub(crate) struct ConnectError(String);
-
-#[derive(Debug, Error)]
-#[error("accept error: {0}")]
-pub(crate) struct AcceptError(String);
+use super::{AcceptError, ClientEndpoint, ConnectError, ServerEndpoint};
 
 #[async_trait]
-pub(crate) trait ServerEndpoint<C: Connection> {
-    async fn accept_connection(&mut self, zero_rtt: bool) -> Result<C, AcceptError>;
-}
-
-#[async_trait]
-pub(crate) trait ClientEndpoint<C: Connection> {
-    async fn connect(
-        &self,
-        addr: SocketAddr,
-        server_name: &str,
+impl ServerEndpoint for QuinnEndpoint {
+    async fn accept_connection(
+        &mut self,
         zero_rtt: bool,
-    ) -> Result<C, ConnectError>;
-}
-
-#[async_trait]
-impl ServerEndpoint<QuinnConnection> for QuinnEndpoint {
-    async fn accept_connection(&mut self, zero_rtt: bool) -> Result<QuinnConnection, AcceptError> {
-        self.accept()
+    ) -> Result<Box<dyn Connection>, AcceptError> {
+        let conn = self
+            .accept()
             .await
             .ok_or_else(|| AcceptError("no next incoming".to_owned()))
             .map(|conn| async {
@@ -65,24 +43,26 @@ impl ServerEndpoint<QuinnConnection> for QuinnEndpoint {
                     }
                 }
             })?
-            .await
+            .await?;
+
+        Ok(Box::new(conn))
     }
 }
 
 #[async_trait]
-impl ClientEndpoint<QuinnConnection> for QuinnEndpoint {
+impl ClientEndpoint for QuinnEndpoint {
     async fn connect(
         &self,
         addr: SocketAddr,
         server_name: &str,
         zero_rtt: bool,
-    ) -> Result<QuinnConnection, ConnectError> {
+    ) -> Result<Box<dyn Connection>, ConnectError> {
         loop {
             let connecting = self
                 .connect(addr, server_name)
                 .map_err(|e| ConnectError(e.to_string()))?;
             match build_connection(connecting, zero_rtt).await {
-                Ok(conn) => break Ok(conn),
+                Ok(conn) => break Ok(Box::new(conn)),
                 Err(e) => {
                     warn!("connection failed: {}, sleep for 4 secs", e);
                 }
@@ -113,28 +93,4 @@ async fn build_connection(
         connecting.await?
     };
     Ok(connection)
-}
-
-#[async_trait]
-impl ServerEndpoint<S2nConnection> for S2nServer {
-    async fn accept_connection(&mut self, _zero_rtt: bool) -> Result<S2nConnection, AcceptError> {
-        self.accept()
-            .await
-            .ok_or_else(|| AcceptError("no next incoming".to_owned()))
-    }
-}
-
-#[async_trait]
-impl ClientEndpoint<S2nConnection> for S2nClient {
-    async fn connect(
-        &self,
-        addr: SocketAddr,
-        server_name: &str,
-        _zero_rtt: bool,
-    ) -> Result<S2nConnection, ConnectError> {
-        let config = ConnectConfig::new(addr).with_server_name(server_name);
-        self.connect(config)
-            .await
-            .map_err(|e| ConnectError(e.to_string()))
-    }
 }

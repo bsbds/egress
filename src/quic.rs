@@ -1,7 +1,7 @@
 mod command;
-mod connection;
+pub(crate) mod connection;
 mod datagram_stream;
-mod endpoint;
+pub(crate) mod endpoint;
 
 use crate::{
     common::constant::{
@@ -15,10 +15,10 @@ use dashmap::DashMap;
 pub use datagram_stream::DatagramStream;
 use flume::{Receiver, Sender};
 use log::{error, info};
-use quinn::{Connection, RecvStream, SendStream};
 use std::{
     collections::{HashMap, VecDeque},
     fmt::Display,
+    io,
     net::SocketAddr,
     sync::{
         atomic::{AtomicU16, Ordering},
@@ -27,7 +27,91 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify};
+
+use self::connection::{Connection, ConnectionError, RecvStream, SendStream};
 use {command::*, datagram_stream::*};
+
+pub struct ConnectionBuilder {
+    connection: Box<dyn Connection>,
+    psk: Arc<Vec<u8>>,
+    stream_idle_timeout: u64,
+}
+
+impl ConnectionBuilder {
+    pub fn new(
+        connection: Box<dyn Connection>,
+        psk: Arc<Vec<u8>>,
+        stream_idle_timeout: u64,
+    ) -> Self {
+        Self {
+            connection,
+            psk,
+            stream_idle_timeout,
+        }
+    }
+
+    pub async fn build_client(mut self) -> Result<QuicConnection<ClientState>, CommandError> {
+        let (mut send_stream, recv_stream) = self.connection.open_bi_stream().await?;
+        let command = ConnectionCommand::Auth { psk: self.psk };
+        command.write_to_stream(send_stream.as_mut()).await?;
+
+        let connection = QuicConnection {
+            inner: Arc::new(QuicConnectionInner {
+                connection: self.connection,
+                command_send_stream: Mutex::new(send_stream),
+                command_recv_stream: Mutex::new(recv_stream),
+                chan_mpsc: flume::bounded(FLUME_CHANNEL_SIZE),
+                sender_map: Arc::new(DashMap::new()),
+                close_signal_map: DashMap::new(),
+                closed: Arc::new(Notify::new()),
+                stream_idle_timeout: self.stream_idle_timeout,
+            }),
+            state: ClientState {
+                id_gen: Arc::new(StreamIdGenerator::default()),
+            },
+        };
+
+        connection.start_transport();
+
+        Ok(connection)
+    }
+
+    pub async fn build_server(mut self) -> Result<QuicConnection<ServerState>, CommandError> {
+        let (send_stream, mut recv_stream) = self.connection.accept_bi_stream().await?;
+
+        let command = read_command(recv_stream.as_mut()).await?;
+
+        if let ConnectionCommand::Auth { psk } = command {
+            if psk.iter().zip(self.psk.iter()).all(|(x, y)| x == y) {
+            } else {
+                self.connection.close();
+                return Err(CommandError::ConnectionError(
+                    "connection locally closed".to_owned(),
+                ));
+            }
+        }
+        let connection = QuicConnection {
+            inner: Arc::new(QuicConnectionInner {
+                connection: self.connection,
+                command_send_stream: Mutex::new(send_stream),
+                command_recv_stream: Mutex::new(recv_stream),
+                chan_mpsc: flume::bounded(FLUME_CHANNEL_SIZE),
+                sender_map: Arc::new(DashMap::new()),
+                close_signal_map: DashMap::new(),
+                closed: Arc::new(Notify::new()),
+                stream_idle_timeout: self.stream_idle_timeout,
+            }),
+            state: ServerState {
+                stream_queue: Arc::new(ArrayQueue::new(STREAM_QUEUE_SIZE)),
+                new_stream: Arc::new(Notify::new()),
+            },
+        };
+
+        connection.start_transport();
+
+        Ok(connection)
+    }
+}
 
 pub trait ConnectedState {}
 
@@ -55,10 +139,9 @@ where
 }
 
 pub struct QuicConnectionInner {
-    connection: Connection,
-    command_send_stream: Mutex<Option<SendStream>>,
-    command_recv_stream: Mutex<Option<RecvStream>>,
-    psk: Arc<Vec<u8>>,
+    connection: Box<dyn Connection>,
+    command_send_stream: Mutex<Box<dyn SendStream>>,
+    command_recv_stream: Mutex<Box<dyn RecvStream>>,
     chan_mpsc: (Sender<StreamData>, Receiver<StreamData>),
     sender_map: Arc<DashMap<StreamId, Sender<Bytes>>>,
     close_signal_map: DashMap<StreamId, Arc<Notify>>,
@@ -82,73 +165,7 @@ where
     S: Clone,
 {
     pub fn connection_closed(&self) -> bool {
-        self.connection.close_reason().is_some()
-    }
-}
-
-impl QuicConnection<()> {
-    pub async fn new(connection: Connection, psk: Arc<Vec<u8>>, stream_idle_timeout: u64) -> Self {
-        QuicConnection {
-            inner: Arc::new(QuicConnectionInner {
-                connection,
-                command_send_stream: Mutex::new(None),
-                command_recv_stream: Mutex::new(None),
-                psk,
-                chan_mpsc: flume::bounded(FLUME_CHANNEL_SIZE),
-                sender_map: Arc::new(DashMap::new()),
-                close_signal_map: DashMap::new(),
-                closed: Arc::new(Notify::new()),
-                stream_idle_timeout,
-            }),
-            state: (),
-        }
-    }
-
-    pub async fn into_client(self) -> Result<QuicConnection<ClientState>, CommandError> {
-        let (mut send_stream, recv_stream) = self.connection.open_bi().await?;
-
-        let command = ConnectionCommand::Auth {
-            psk: self.psk.clone(),
-        };
-        command.write_to_stream(&mut send_stream).await?;
-        self.command_send_stream.lock().await.replace(send_stream);
-        self.command_recv_stream.lock().await.replace(recv_stream);
-        let connection = QuicConnection {
-            inner: self.inner.clone(),
-            state: ClientState {
-                id_gen: Arc::new(StreamIdGenerator::default()),
-            },
-        };
-        connection.start_transport();
-        Ok(connection)
-    }
-
-    pub async fn into_server(self) -> Result<QuicConnection<ServerState>, CommandError> {
-        let (send_stream, mut recv_stream) = self.connection.accept_bi().await?;
-
-        let command = read_command(&mut recv_stream).await?;
-
-        self.command_send_stream.lock().await.replace(send_stream);
-        self.command_recv_stream.lock().await.replace(recv_stream);
-
-        if let ConnectionCommand::Auth { psk } = command {
-            if psk.iter().zip(self.psk.iter()).all(|(x, y)| x == y) {
-            } else {
-                self.connection.close(0u32.into(), &[]);
-                return Err(CommandError::ConnectionError(QuinnError::Connection(
-                    quinn::ConnectionError::LocallyClosed,
-                )));
-            }
-        }
-        let connection = QuicConnection {
-            inner: self.inner.clone(),
-            state: ServerState {
-                stream_queue: Arc::new(ArrayQueue::new(STREAM_QUEUE_SIZE)),
-                new_stream: Arc::new(Notify::new()),
-            },
-        };
-        connection.start_transport();
-        Ok(connection)
+        self.connection.closed()
     }
 }
 
@@ -161,7 +178,7 @@ where
         tokio::spawn(async move {
             let command = ConnectionCommand::Close { stream_id };
             let mut guard = this.command_send_stream.lock().await;
-            let send_stream = guard.as_mut().unwrap();
+            let send_stream = guard.as_mut();
             if let Err(e) = command.write_to_stream(send_stream).await {
                 info!("manually close stream failed: {}", e);
             }
@@ -196,9 +213,7 @@ impl QuicConnection<ClientState> {
         };
         let stream = self.build_stream(stream_type, id, peer_addr);
         let mut send_stream = self.command_send_stream.lock().await;
-        command
-            .write_to_stream(send_stream.as_mut().unwrap())
-            .await?;
+        command.write_to_stream(send_stream.as_mut()).await?;
         Ok(stream)
     }
 }
@@ -295,13 +310,13 @@ where
             let QuicConnectionInner {
                 connection, closed, ..
             } = this.as_ref();
-            let conn_id = this.connection.stable_id();
+            let conn_id = this.connection.id();
 
             if let Err(e) = this.transport_inner().await {
                 info!("connection error: {}, id: {}", e, conn_id);
             }
-            if connection.close_reason().is_none() {
-                connection.close(0u32.into(), &[]);
+            if !connection.closed() {
+                connection.close();
             }
             closed.notify_waiters();
         });
@@ -317,7 +332,7 @@ where
         } = self.as_ref();
 
         let mut guard = command_recv_stream.lock().await;
-        let recv_stream = guard.as_mut().unwrap();
+        let recv_stream = guard.as_mut();
 
         let mut pending_queue = HashMap::new();
         let mut pending_ids = VecDeque::new();
@@ -495,38 +510,25 @@ pub struct DecodeDataError<T>(pub T);
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum CommandError {
     #[error("connection error: {0}")]
-    ConnectionError(QuinnError),
+    ConnectionError(String),
     #[error("data error: {0}")]
     DataError(DecodeCommandError),
 }
 
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub enum QuinnError {
-    #[error("{0}")]
-    Connection(quinn::ConnectionError),
-    #[error("{0}")]
-    Write(quinn::WriteError),
-    #[error("{0}")]
-    ReadExact(quinn::ReadExactError),
-}
-
-impl From<quinn::ReadExactError> for CommandError {
-    fn from(value: quinn::ReadExactError) -> Self {
-        Self::ConnectionError(QuinnError::ReadExact(value))
-    }
-}
-impl From<quinn::WriteError> for CommandError {
-    fn from(value: quinn::WriteError) -> Self {
-        Self::ConnectionError(QuinnError::Write(value))
-    }
-}
-impl From<quinn::ConnectionError> for CommandError {
-    fn from(value: quinn::ConnectionError) -> Self {
-        Self::ConnectionError(QuinnError::Connection(value))
-    }
-}
 impl From<DecodeCommandError> for CommandError {
     fn from(value: DecodeCommandError) -> Self {
         Self::DataError(value)
+    }
+}
+
+impl From<ConnectionError> for CommandError {
+    fn from(err: ConnectionError) -> Self {
+        Self::ConnectionError(err.to_string())
+    }
+}
+
+impl From<io::Error> for CommandError {
+    fn from(err: io::Error) -> Self {
+        Self::ConnectionError(err.to_string())
     }
 }

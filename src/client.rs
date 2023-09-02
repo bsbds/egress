@@ -1,23 +1,27 @@
 mod client_tcp;
 mod client_udp;
+#[cfg(feature = "quinn")]
+mod endpoint_quinn;
+#[cfg(feature = "s2n-quic")]
+mod endpoint_s2n;
 
 use crate::{
     common::util,
-    config::{self, Congestion, NetworkType},
-    quic::*,
+    config::{self, NetworkType},
+    quic::{connection::Connection, endpoint::ClientEndpoint, *},
 };
+#[cfg(feature = "quinn")]
+use endpoint_quinn::build_endpoint;
+#[cfg(feature = "s2n-quic")]
+use endpoint_s2n::build_endpoint;
 use log::{info, warn};
-use quinn::{self, Connecting, Connection, Endpoint};
 use std::{net::SocketAddr, sync::Arc};
-use tokio::{
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use tokio::{sync::Mutex, time::Duration};
 use {client_tcp::*, client_udp::*};
 
 pub struct QuicConnManager {
     conn_handle: Mutex<Option<QuicConnection<ClientState>>>,
-    endpoint: Endpoint,
+    endpoint: Box<dyn ClientEndpoint>,
     server_addr: SocketAddr,
     server_name: String,
     psk: Arc<Vec<u8>>,
@@ -27,7 +31,7 @@ pub struct QuicConnManager {
 
 impl QuicConnManager {
     fn new(
-        endpoint: Endpoint,
+        endpoint: Box<dyn ClientEndpoint>,
         server_addr: SocketAddr,
         server_name: String,
         psk: Vec<u8>,
@@ -54,115 +58,32 @@ impl QuicConnManager {
         }
         let connection = self.endpoint_connect().await;
         let new_handle =
-            QuicConnection::new(connection, self.psk.clone(), self.stream_idle_timeout)
-                .await
-                .into_client()
+            ConnectionBuilder::new(connection, self.psk.clone(), self.stream_idle_timeout)
+                .build_client()
                 .await
                 .expect("open connection failed");
         guard.replace(new_handle.clone());
         new_handle
     }
 
-    async fn endpoint_connect(&self) -> Connection {
-        let conn = loop {
+    async fn endpoint_connect(&self) -> Box<dyn Connection> {
+        loop {
             info!("connecting to {}", self.server_addr);
-            let connecting = self
+            match self
                 .endpoint
-                .connect(self.server_addr, &self.server_name)
-                .expect("endpoint connect failed");
-            match self.build_connection(connecting, self.enable_0rtt).await {
-                Ok(conn) => break conn,
+                .connect(self.server_addr, &self.server_name, self.enable_0rtt)
+                .await
+            {
+                Ok(conn) => {
+                    return conn;
+                }
                 Err(e) => {
-                    warn!("connection failed: {}, sleep for 4 secs", e);
+                    warn!("connect to {} failed: {e}", self.server_addr);
                 }
             }
             tokio::time::sleep(Duration::from_secs(4)).await;
-        };
-        conn
+        }
     }
-
-    async fn build_connection(
-        &self,
-        connecting: Connecting,
-        enable_0rtt: bool,
-    ) -> Result<Connection, Box<dyn std::error::Error>> {
-        let connection = if enable_0rtt {
-            match connecting.into_0rtt() {
-                Ok((conn, _)) => {
-                    info!("using 0-rtt handshake");
-                    conn
-                }
-                Err(conn) => {
-                    let timer = Instant::now();
-                    let conn = conn.await?;
-                    info!("handshake complete: {}ms", timer.elapsed().as_millis());
-                    conn
-                }
-            }
-        } else {
-            connecting.await?
-        };
-        Ok(connection)
-    }
-}
-
-struct SkipServerVerification;
-impl SkipServerVerification {
-    fn new() -> Arc<Self> {
-        Arc::new(Self)
-    }
-}
-impl rustls::client::ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::Certificate,
-        _intermediates: &[rustls::Certificate],
-        _server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
-        _ocsp_response: &[u8],
-        _now: std::time::SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::ServerCertVerified::assertion())
-    }
-}
-
-fn configure_client() -> quinn::ClientConfig {
-    let mut crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_custom_certificate_verifier(SkipServerVerification::new())
-        .with_no_client_auth();
-    crypto.enable_early_data = true;
-    quinn::ClientConfig::new(Arc::new(crypto))
-}
-
-fn build_endpoint(
-    cert_ver: bool,
-    congestion: Congestion,
-    initial_mtu: u16,
-    server_addr: SocketAddr,
-    conn_idle_timeout: u64,
-) -> Result<Endpoint, Box<dyn std::error::Error>> {
-    let mut client_config = if cert_ver {
-        quinn::ClientConfig::with_native_roots()
-    } else {
-        warn!("skipping certificate verification");
-        configure_client()
-    };
-
-    let transport = util::new_transport(initial_mtu, congestion, conn_idle_timeout);
-    client_config.transport_config(Arc::new(transport));
-
-    let addr: SocketAddr = match server_addr {
-        SocketAddr::V4(_) => "0.0.0.0:0",
-        SocketAddr::V6(_) => "[::]:0",
-    }
-    .parse()
-    .unwrap();
-
-    let mut endpoint = Endpoint::client(addr)?;
-    endpoint.set_default_client_config(client_config);
-
-    Ok(endpoint)
 }
 
 pub async fn client(config: config::Config) {
