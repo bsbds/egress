@@ -3,7 +3,10 @@ use std::task::Poll;
 use async_trait::async_trait;
 use bytes::Bytes;
 use s2n_quic::{
-    provider::datagram::default::{Receiver, Sender},
+    provider::{
+        datagram::default::{Receiver, Sender},
+        event::{events, Subscriber},
+    },
     Connection as S2nConnection,
 };
 
@@ -23,7 +26,8 @@ impl Connection for S2nConnection {
     }
 
     fn closed(&self) -> bool {
-        self.remote_addr().is_err()
+        let context = self.query_event_context(|event_context: &EventContext| *event_context);
+        context.map(|c| c.closed).unwrap_or(true)
     }
 
     fn send_datagram(&self, data: Bytes) -> Result<(), ConnectionError> {
@@ -65,4 +69,31 @@ impl Connection for S2nConnection {
 
         Ok((Box::new(tx), Box::new(rx)))
     }
+}
+
+pub(crate) struct ConnectionSubscriber {}
+
+impl Subscriber for ConnectionSubscriber {
+    type ConnectionContext = EventContext;
+    fn create_connection_context(
+        &mut self,
+        _meta: &events::ConnectionMeta,
+        _info: &events::ConnectionInfo,
+    ) -> Self::ConnectionContext {
+        EventContext { closed: false }
+    }
+
+    fn on_connection_closed(
+        &mut self,
+        context: &mut Self::ConnectionContext,
+        _meta: &s2n_quic::provider::event::ConnectionMeta,
+        _event: &events::ConnectionClosed,
+    ) {
+        context.closed = true;
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct EventContext {
+    closed: bool,
 }

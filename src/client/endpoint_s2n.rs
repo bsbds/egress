@@ -1,7 +1,7 @@
 use crate::{
     common::constant::{DATAGRAM_RECV_CAPACITY, DATAGRAM_SEND_CAPACITY},
     config::Congestion,
-    quic::endpoint::ClientEndpoint,
+    quic::{connection::s2n::ConnectionSubscriber, endpoint::ClientEndpoint},
 };
 use log::warn;
 use s2n_quic::{provider::congestion_controller, Client as S2nClient};
@@ -34,7 +34,8 @@ pub(super) fn build_endpoint(
     let client = S2nClient::builder()
         .with_io(addr)?
         .with_limits(limits)?
-        .with_datagram(datagram)?;
+        .with_datagram(datagram)?
+        .with_event(ConnectionSubscriber {})?;
 
     let client = match congestion {
         Congestion::Cubic => client
