@@ -34,8 +34,8 @@ fn configure_client() -> quinn::ClientConfig {
 
 pub(super) fn build_endpoint(
     cert_ver: bool,
+    _cert_path: Option<String>,
     congestion: Congestion,
-    initial_mtu: u16,
     server_addr: SocketAddr,
     conn_idle_timeout: u64,
 ) -> Result<Box<dyn ClientEndpoint>, Box<dyn std::error::Error>> {
@@ -46,7 +46,7 @@ pub(super) fn build_endpoint(
         configure_client()
     };
 
-    let transport = util::quinn::new_transport(initial_mtu, congestion, conn_idle_timeout);
+    let transport = util::quinn::new_transport(congestion, conn_idle_timeout);
     client_config.transport_config(Arc::new(transport));
 
     let addr: SocketAddr = match server_addr {

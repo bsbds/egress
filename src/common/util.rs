@@ -16,17 +16,12 @@ pub(crate) mod quinn {
     use quinn::TransportConfig;
     use std::{sync::Arc, time::Duration};
 
-    pub(crate) fn new_transport(
-        initial_mtu: u16,
-        congestion: Congestion,
-        idle_timeout: u64,
-    ) -> TransportConfig {
+    pub(crate) fn new_transport(congestion: Congestion, idle_timeout: u64) -> TransportConfig {
         let mut transport = quinn::TransportConfig::default();
         transport.max_idle_timeout(Some(
             quinn::IdleTimeout::try_from(Duration::from_secs(idle_timeout))
                 .expect("invalid timeout"),
         ));
-        transport.initial_mtu(initial_mtu);
         match congestion {
             Congestion::Cubic => {
                 info!("using congestion: cubic");

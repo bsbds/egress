@@ -32,7 +32,6 @@ pub(super) fn build_endpoint(
     certificate: Option<String>,
     private_key: Option<String>,
     congestion: Congestion,
-    initial_mtu: u16,
     self_sign: bool,
     conn_idle_timeout: u64,
 ) -> Result<Box<dyn ServerEndpoint>, Box<dyn Error>> {
@@ -47,7 +46,7 @@ pub(super) fn build_endpoint(
         )?
     };
 
-    let transport = util::quinn::new_transport(initial_mtu, congestion, conn_idle_timeout);
+    let transport = util::quinn::new_transport(congestion, conn_idle_timeout);
     let mut server_config = quinn::ServerConfig::with_single_cert(cert_chain, key)?;
     server_config.transport_config(Arc::new(transport));
 

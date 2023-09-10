@@ -18,14 +18,12 @@ pub struct Config {
     pub server: Option<ServerConfig>,
     #[serde(default = "default_congestion")]
     pub congestion: Congestion,
-    #[serde(default = "default_initial_mtu")]
-    pub initial_mtu: u16,
     #[serde(default = "default_conn_idle_timeout")]
     pub connection_idle_timeout: u64,
     #[serde(default = "default_stream_idle_timeout")]
     pub stream_idle_timeout: u64,
     #[serde(default = "default_enable_0rtt")]
-    pub enable_0rtt: bool,
+    pub enable_0rtt: Option<bool>,
     #[serde(default = "default_loglevel")]
     pub loglevel: String,
 }
@@ -33,19 +31,16 @@ fn default_congestion() -> Congestion {
     Congestion::Bbr
 }
 fn default_conn_idle_timeout() -> u64 {
-    60
+    600
 }
 fn default_stream_idle_timeout() -> u64 {
     30
 }
-fn default_enable_0rtt() -> bool {
-    false
+fn default_enable_0rtt() -> Option<bool> {
+    Some(false)
 }
 fn default_loglevel() -> String {
     "warn".to_string()
-}
-fn default_initial_mtu() -> u16 {
-    1200
 }
 
 /// Client specific configuration
@@ -58,6 +53,7 @@ pub struct ClientConfig {
     pub network: NetworkType,
     #[serde(default = "default_cert_ver")]
     pub cert_ver: bool,
+    pub cert_path: Option<String>,
 }
 fn default_cert_ver() -> bool {
     true

@@ -27,7 +27,6 @@ pub async fn server(config: config::Config) {
         server_config.certificate,
         server_config.private_key,
         config.congestion,
-        config.initial_mtu,
         server_config.self_sign,
         config.connection_idle_timeout,
     )

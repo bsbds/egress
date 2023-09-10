@@ -22,7 +22,7 @@ pub(crate) struct AcceptError(String);
 pub(crate) trait ServerEndpoint {
     async fn accept_connection(
         &mut self,
-        zero_rtt: bool,
+        zero_rtt: Option<bool>,
     ) -> Result<Box<dyn Connection>, AcceptError>;
 }
 
@@ -32,6 +32,6 @@ pub(crate) trait ClientEndpoint {
         &self,
         addr: SocketAddr,
         server_name: &str,
-        zero_rtt: bool,
+        zero_rtt: Option<bool>,
     ) -> Result<Box<dyn Connection>, ConnectError>;
 }

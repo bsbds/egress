@@ -25,7 +25,7 @@ pub struct QuicConnManager {
     server_addr: SocketAddr,
     server_name: String,
     psk: Arc<Vec<u8>>,
-    enable_0rtt: bool,
+    enable_0rtt: Option<bool>,
     stream_idle_timeout: u64,
 }
 
@@ -35,7 +35,7 @@ impl QuicConnManager {
         server_addr: SocketAddr,
         server_name: String,
         psk: Vec<u8>,
-        enable_0rtt: bool,
+        enable_0rtt: Option<bool>,
         stream_idle_timeout: u64,
     ) -> Self {
         Self {
@@ -98,8 +98,8 @@ pub async fn client(config: config::Config) {
         .expect("server ip address not found");
     let endpoint = build_endpoint(
         client_conf.cert_ver,
+        client_conf.cert_path,
         config.congestion,
-        config.initial_mtu,
         server_addr,
         config.connection_idle_timeout,
     )

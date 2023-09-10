@@ -11,7 +11,7 @@ use super::{AcceptError, ClientEndpoint, ConnectError, ServerEndpoint};
 impl ServerEndpoint for S2nServer {
     async fn accept_connection(
         &mut self,
-        _zero_rtt: bool,
+        _zero_rtt: Option<bool>,
     ) -> Result<Box<dyn Connection>, AcceptError> {
         Ok(Box::new(self.accept().await.ok_or_else(|| {
             AcceptError("no next incoming".to_owned())
@@ -25,7 +25,7 @@ impl ClientEndpoint for S2nClient {
         &self,
         addr: SocketAddr,
         server_name: &str,
-        _zero_rtt: bool,
+        _zero_rtt: Option<bool>,
     ) -> Result<Box<dyn Connection>, ConnectError> {
         let config = ConnectConfig::new(addr).with_server_name(server_name);
         Ok(Box::new(

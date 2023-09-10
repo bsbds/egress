@@ -15,14 +15,14 @@ use super::{AcceptError, ClientEndpoint, ConnectError, ServerEndpoint};
 impl ServerEndpoint for QuinnEndpoint {
     async fn accept_connection(
         &mut self,
-        zero_rtt: bool,
+        zero_rtt: Option<bool>,
     ) -> Result<Box<dyn Connection>, AcceptError> {
         let conn = self
             .accept()
             .await
             .ok_or_else(|| AcceptError("no next incoming".to_owned()))
             .map(|conn| async {
-                if zero_rtt {
+                if zero_rtt.unwrap_or(false) {
                     info!("using 0-rtt handshake");
                     Ok(conn.into_0rtt().unwrap().0)
                 } else {
@@ -55,7 +55,7 @@ impl ClientEndpoint for QuinnEndpoint {
         &self,
         addr: SocketAddr,
         server_name: &str,
-        zero_rtt: bool,
+        zero_rtt: Option<bool>,
     ) -> Result<Box<dyn Connection>, ConnectError> {
         loop {
             let connecting = self
@@ -74,9 +74,9 @@ impl ClientEndpoint for QuinnEndpoint {
 
 async fn build_connection(
     connecting: Connecting,
-    enable_0rtt: bool,
+    enable_0rtt: Option<bool>,
 ) -> Result<QuinnConnection, Box<dyn std::error::Error>> {
-    let connection = if enable_0rtt {
+    let connection = if enable_0rtt.unwrap_or(false) {
         match connecting.into_0rtt() {
             Ok((conn, _)) => {
                 info!("using 0-rtt handshake");

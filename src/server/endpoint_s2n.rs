@@ -12,7 +12,6 @@ pub(super) fn build_endpoint(
     certificate: Option<String>,
     private_key: Option<String>,
     congestion: Congestion,
-    _initial_mtu: u16,
     _self_sign: bool,
     conn_idle_timeout: u64,
 ) -> Result<Box<dyn ServerEndpoint>, Box<dyn Error>> {
