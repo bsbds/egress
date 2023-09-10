@@ -315,9 +315,7 @@ where
             if let Err(e) = this.transport_inner().await {
                 info!("connection error: {}, id: {}", e, conn_id);
             }
-            if !connection.closed() {
-                connection.close();
-            }
+            connection.close();
             closed.notify_waiters();
         });
     }
