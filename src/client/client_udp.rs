@@ -67,8 +67,9 @@ impl UdpState {
                                 let sender = match sender_map.get(&addr) {
                                     None => {
                                         peer_queue.push(UdpPeer::new(self.clone(), addr));
+                                        let sender = sender_map.get(&addr).unwrap().clone();
                                         new_peer.notify_waiters();
-                                        sender_map.get(&addr).unwrap().clone()
+                                        sender
                                     }
                                     Some(sender) => {
                                         sender.clone()
@@ -147,10 +148,16 @@ async fn accept_connections(listener: UdpState, peer_addr: SocketAddr, conn_man:
     loop {
         let udp_peer = listener.accept().await;
         let handle = conn_man.handle().await;
-        let quic_stream = handle
+        let quic_stream = match handle
             .open_datagram_stream(NetworkType::Udp, peer_addr)
             .await
-            .expect("open stream failed");
+        {
+            Ok(stream) => stream,
+            Err(e) => {
+                info!("open datagram stream failed: {e}, reconnecting");
+                continue;
+            }
+        };
         tokio::spawn(async move {
             loop {
                 tokio::select! {
