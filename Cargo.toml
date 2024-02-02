@@ -23,6 +23,9 @@ clap = { version = "4.1", features = ["derive"] }
 thiserror = "1"
 dashmap = "5.4"
 crossbeam-queue = "0.3"
+anyhow = "1.0.78"
+async-trait = "0.1.76"
+parking_lot = "0.12.1"
 
 [profile.release]
 lto = true

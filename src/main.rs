@@ -1,15 +1,26 @@
+mod client;
+mod config;
+mod quic;
+mod server;
+mod utils;
+
 use std::fs;
 
 use clap::Parser;
 
-mod config;
-
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     let args = config::Args::parse();
-    let _config: config::Config = toml::from_str(
-        &fs::read_to_string(args.config_path).expect("failed to read configuration file"),
-    )
-    .expect("failed to parse configuration file");
+    let config: config::Config = toml::from_str(&fs::read_to_string(args.config_path)?)?;
+
+    match config {
+        config::Config::Client(c) => {
+            client::run(c).await;
+        }
+        config::Config::Server(c) => {
+            server::run(c).await;
+        }
+    }
+
     Ok(())
 }
